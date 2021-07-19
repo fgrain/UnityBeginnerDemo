@@ -1,0 +1,18 @@
+using UnityEngine;
+using System.Collections;
+
+public class DieState : BaseState
+{
+    public DieState(PlayerState state):base(state){}
+
+    public override void CurrentAnimation()
+    {
+        playerState.Animator.SetInteger(AnimatorNum.AnimationState,AnimatorNum.IsDie);
+    }
+
+    public override void CurrentAudio()
+    {
+        playerState.AudioSource.Stop();
+        GameEnding.Instance.CaughtPlayer();
+    }
+}

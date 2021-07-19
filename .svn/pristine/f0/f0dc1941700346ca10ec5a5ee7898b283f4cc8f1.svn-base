@@ -1,0 +1,17 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public abstract class BaseState
+{
+    protected PlayerState playerState;
+    public BaseState(PlayerState state){
+        playerState=state;  
+        CurrentAnimation();
+        CurrentAudio();
+    }
+    public abstract void CurrentAudio();
+    public abstract void CurrentAnimation();
+}
+
+

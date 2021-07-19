@@ -1,0 +1,10 @@
+class AnimatorNum
+{
+    static AnimatorNum m_instance;
+    public static AnimatorNum Instance { get => m_instance; }
+
+    public const string AnimationState = "AnimationState";
+    public const int IsIdle = 0;
+    public const int IsWalking = 1;
+    public const int IsDie = 2;
+}

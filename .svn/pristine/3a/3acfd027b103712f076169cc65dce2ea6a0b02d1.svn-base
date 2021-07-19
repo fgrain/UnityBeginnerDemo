@@ -1,0 +1,98 @@
+### 1.血量与伤害
+
+- 主角将有3点血，与怪物第一次接触时掉1点血，持续接触时每秒掉1点血
+
+  每当角色进入怪物攻击范围开启一个协程，持续掉血
+
+  ```c#
+      IEnumerator Injured()
+      {
+          while (blood > 0 && m_IsLiving)
+          {
+              blood--;
+              Debug.Log(blood);
+              UIController.Instance.UpdateBlood();
+              if (blood == 0)
+              {
+                  playerState.SetPlayerState(new DieState(playerState));
+                  m_IsLiving = false;
+                  break;
+              }
+              yield return new WaitForSeconds(1);
+          }
+      }
+  ```
+
+  掉血时代表血条的UI会闪烁表示受伤
+
+  
+
+- 怪物血量为1点，被灯光照射或子弹命中后受1点伤害
+
+  创建一个敌人类保存敌人的信息，如血量，死亡状态，被攻击后掉血，血量为0是状态改为死亡
+
+### 2.死亡与重生
+
+- 血量降至0的主角应播放**死亡动画，**其模型会**淡出场景**，游戏场景随后将重新加载
+
+  通过Animator控制角色动画，此处采用一个int值表示不同的状态，死亡后重新加载场景。
+
+  将所有角色的状态写成一个状态机，比如待机，行走，死亡，以后还会有攻击，拾取物品等状态，代码可拓展性强。
+
+  ```c#
+  public abstract class BaseState
+  {
+      protected PlayerState playerState;
+      public BaseState(PlayerState state){
+          playerState=state;  
+          CurrentAnimation();
+          CurrentAudio();
+      }
+      public abstract void CurrentAudio();
+      public abstract void CurrentAnimation();
+  }
+  public class DieState : BaseState
+  {
+      public DieState(PlayerState state):base(state){}
+  
+      public override void CurrentAnimation()
+      {
+          playerState.Animator.SetInteger(AnimatorNum.AnimationState,AnimatorNum.IsDie);
+      }
+  
+      public override void CurrentAudio()
+      {
+          playerState.AudioSource.Stop();
+          GameEnding.Instance.CaughtPlayer();
+      }
+  }
+  public class PlayerState
+  {
+      BaseState nowState;
+      Animator m_Animator;
+      AudioSource m_AudioSource;
+      public PlayerState(Animator animator, AudioSource audioSource)
+      {
+          Animator = animator;
+          AudioSource = audioSource;
+      }
+      public Animator Animator { get => m_Animator; set => m_Animator = value; }
+      public AudioSource AudioSource { get => m_AudioSource; set => m_AudioSource = value; }
+      public void SetPlayerState(BaseState newstate)
+      {
+          nowState = newstate;
+      }
+  }
+  ```
+
+  
+
+- 场景中有重生点，死亡的怪物在符合特定条件下会在特定地点重生，重生后的**前3秒**不会伤害玩家
+
+  重生点设为怪物初始化的位置，死亡后前三秒怪物的collider组件关闭，这样就碰撞不到玩家了
+
+### 3.场景机制
+
+- 每个房间有一盏**灯**，灯亮10秒钟后自动熄灭，灯灭15秒后自动亮起；在灯为亮起状态时，进入灯光**5米**范围内的怪物将会死亡；灯灭3秒后，相应房间内处于死亡状态的怪物将重生
+
+  灯光状态放在一个专门控制灯光的脚本中，按规定时间亮起熄灭，同时用字典保存以死亡敌人的信息，在灯灭后复活他们。每盏灯都有检测敌人的功能，为等设置一个触发器，走入光照范围内的敌人去世。

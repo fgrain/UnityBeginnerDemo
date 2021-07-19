@@ -1,0 +1,31 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class Enemy : MonoBehaviour
+{
+    public int blood = 1;
+    private Vector3 m_initPos;
+    private bool m_isDie=false;
+
+    public bool IsDie { get => m_isDie; set => m_isDie = value; }
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        m_initPos=transform.position;
+    }
+
+    public void Revival(){
+        blood=1;
+        m_isDie=false;
+        transform.position=m_initPos;
+    }
+
+    public void Attacked(){
+        blood--;
+        if(blood==0){
+            m_isDie=true;
+        }
+    }
+}

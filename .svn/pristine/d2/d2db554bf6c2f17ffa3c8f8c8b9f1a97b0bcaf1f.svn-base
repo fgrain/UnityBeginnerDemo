@@ -1,0 +1,50 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class LightAttack : MonoBehaviour
+{
+    void OnTriggerEnter(Collider other)
+    {
+        if (other.tag == "Enemy")
+        {
+            Transform enemy = other.transform;
+            //CheckEnemy(other.transform);
+            if (enemy.GetComponent<Enemy>())
+            {
+                Enemy enemyState = enemy.GetComponent<Enemy>();
+                enemyState.Attacked();
+                if (enemyState.IsDie)
+                {
+                    Debug.Log("die " + enemy.name);
+                    enemy.gameObject.SetActive(false);
+                    LightManager.Instance.enemies[enemy.name]=enemyState;
+                }
+            }
+
+        }
+    }
+
+    // Start is called before the first frame update
+    void CheckEnemy(Transform enemy)
+    {
+        Vector3 direction = enemy.position - transform.position + Vector3.up;
+        Ray ray = new Ray(transform.position, direction);
+        RaycastHit raycastHit;
+
+        if (Physics.Raycast(ray, out raycastHit))
+        {
+            //Debug.Log(raycastHit.collider.tag);
+            if (raycastHit.collider.tag == "Enemy")
+            {
+                Enemy enemyState = enemy.GetComponent<Enemy>();
+                enemyState.Attacked();
+                if (enemyState.IsDie)
+                {
+                    enemy.gameObject.SetActive(false);
+                    LightManager.Instance.enemies[enemy.name]=enemyState;
+                }
+            }
+        }
+    }
+}

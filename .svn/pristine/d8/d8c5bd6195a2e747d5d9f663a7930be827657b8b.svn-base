@@ -1,0 +1,38 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+
+public class UIController : MonoBehaviour
+{
+    static UIController m_instance;
+    public static UIController Instance { get => m_instance; }
+    public Image[] bloods;
+    private PlayerMovement m_player;
+    private Sprite redHP;
+    private Sprite yellowHP;
+
+    private void Start()
+    {
+        m_instance=this;
+        m_player = GameObject.Find("JohnLemon").GetComponent<PlayerMovement>();
+        redHP = Resources.Load<Sprite>("UI/HP/HP icon red");
+        yellowHP = Resources.Load<Sprite>("UI/HP/HP icon");
+    }
+    public void UpdateBlood()
+    {
+        StartCoroutine(BloodDisappear(bloods[m_player.blood]));
+    }
+
+    IEnumerator BloodDisappear(Image hp)
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            hp.sprite = yellowHP;
+            yield return new WaitForSeconds(0.2f);
+            hp.sprite = redHP;
+            yield return new WaitForSeconds(0.2f);
+        }
+        hp.gameObject.SetActive(false);
+    }
+}

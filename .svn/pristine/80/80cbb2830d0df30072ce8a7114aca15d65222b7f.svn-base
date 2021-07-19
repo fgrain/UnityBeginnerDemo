@@ -1,0 +1,609 @@
+### 1.血量与伤害
+
+- 主角将有3点血，与怪物第一次接触时掉1点血，持续接触时每秒掉1点血
+
+  创建一个Hurted类，在每个会受伤的人或怪物身上挂这个组件，当中有当前血量，初始化血量，是否存活，是否被攻击或调入陷阱等属性，还有一个扣血的方法。
+
+  ```c#
+      public float blood = 1;
+      public bool IsLiving = true;
+      public float initBlood = 1;
+      private bool m_isInAttactRange;
+      private bool m_isTrapHurt;
+      private bool m_isEnemyHurt;
+      private bool m_isSlowDown;
+      public void Attacked(float hurt)
+      {
+          blood -= hurt;
+          if (blood <= 0)
+          {
+              IsLiving = false;
+              GetComponent<Collider>().enabled = false;
+          }
+      }
+  ```
+
+- 怪物血量为1点，被灯光照射或子弹命中后受1点伤害
+
+  敌人同样挂Hurted组件。创建一个Arm为攻击类，所有会攻击的物体都挂这个组件，其中有攻击范围，攻击cd，是否在攻击范围内等属性，并有检测目标是否可攻击和持续伤害等方法
+  
+  ```c#
+  using System;
+  using UnityEngine;
+  public class Arm : MonoBehaviour
+  {
+      public float attackNum = 1;//攻击力
+      public float attackRange = 0;//攻击范围
+      public float timeHurted = 1;
+      private float m_TimeControll = 0;
+      private bool m_isInRange;
+  
+      public bool IsInRange { get => m_isInRange; set => m_isInRange = value; }
+      public float TimeControll { get => m_TimeControll; set => m_TimeControll = value; }
+  
+      public virtual void OnTriggerEnter(Collider other)
+      {
+          if (other.GetComponent<Hurted>())
+          {
+              m_isInRange = true;
+              other.GetComponent<Hurted>().IsInAttactRange = true;
+          }
+      }
+  
+      public virtual void OnTriggerExit(Collider other)
+      {
+          if (other.GetComponent<Hurted>())
+          {
+              m_isInRange = false;
+              Hurted hurted = other.GetComponent<Hurted>();
+              hurted.IsInAttactRange = false;
+              if (transform.tag == Tag.Enemy)
+              {
+                  hurted.IsEnemyHurt = false;
+              }
+              else if (transform.tag == Tag.Trap)
+              {
+                  hurted.IsTrapHurt = false;
+              }
+          }
+      }
+  
+      //检查目标物是否可攻击，是则攻击一次
+      public void CheckTarget(Transform target)
+      {
+          Vector3 direction = target.position - transform.position + Vector3.up;
+          Ray ray = new Ray(transform.position, direction);
+          RaycastHit raycastHit;
+  
+          if (Physics.Raycast(ray, out raycastHit))
+          {
+              if (raycastHit.collider.GetComponent<Hurted>())
+              {
+                  Hurted enemyState = target.GetComponent<Hurted>();
+                  Debug.Log(enemyState.blood);
+                  enemyState.Attacked(attackNum);
+                  if (!enemyState.IsLiving)
+                  {
+                      if (enemyState.tag == Tag.Enemy)
+                      {
+                          target.gameObject.SetActive(false);
+                          LightManager.Instance.enemies[target.name] = enemyState;
+                      }
+                  }
+              }
+          }
+      }
+  
+      //持续攻击目标无，timeInterval为攻击cd
+      public void ContinueHurt(Transform trans, float timeInterval)
+      {
+          if (trans.GetComponent<Hurted>())
+          {
+              if (trans.GetComponent<Hurted>().IsInAttactRange)
+              {
+                  if (m_TimeControll == 0)
+                  {
+                      m_TimeControll += Time.deltaTime;
+                      CheckTarget(trans);
+                      if (trans.tag == Tag.Player)
+                      {
+                          UIController.Instance.UpdateBlood();
+                      }
+                  }
+                  else if (m_TimeControll < timeInterval)
+                  {
+                      m_TimeControll += Time.deltaTime;
+                  }
+                  else
+                  {
+                      m_TimeControll = 0;
+                  }
+              }
+          }
+  
+      }
+  }
+  ```
+  
+  敌人有observe脚本继承与Arm，检测玩家是否在攻击范围内并对玩家造成伤害
+  
+  ```c#
+  using System.Collections;
+  using System.Collections.Generic;
+  using UnityEngine;
+  
+  public class Observer : Arm
+  {
+      private Transform m_player;
+      private PlayerMovement m_playerMovement;
+      private GameEnding m_gameEnding;
+      private Transform m_HurtTarget;
+  
+      private void Start()
+      {
+          m_player = GameObject.Find("JohnLemon").transform;
+          m_playerMovement = m_player.GetComponent<PlayerMovement>();
+          m_gameEnding = GameObject.Find("GameEnding").GetComponent<GameEnding>();
+      }
+  
+      private void Update()
+      {
+          if (IsInRange)
+          {
+              //Debug.Log("Hurt");
+              ContinueHurt(m_HurtTarget, timeHurted);
+          }
+      }
+  
+      public override void OnTriggerEnter(Collider other)
+      {
+          if (other.tag == Tag.Player)
+          {
+              if (other.GetComponent<Hurted>())
+              {
+                  Hurted hurted=other.GetComponent<Hurted>();
+                  //Debug.Log(other.tag);
+                  IsInRange = true;
+                  hurted.IsInAttactRange = true;
+                  m_HurtTarget = other.transform;
+                  if(transform.tag==Tag.Enemy){
+                      hurted.IsEnemyHurt=true;
+                  }
+                  else if(transform.tag==Tag.Trap){
+                      hurted.IsTrapHurt=true;
+                  }
+                  //ContinueHurt(other.transform, timeHurted);
+              }
+          }
+  
+      }
+  
+  }
+  ```
+  
+  
+
+### 2.死亡与重生
+
+- 血量降至0的主角应播放**死亡动画，**其模型会**淡出场景**，游戏场景随后将重新加载
+
+  通过Animator控制角色动画，此处采用一个int值表示不同的状态，死亡后重新加载场景。
+
+  将所有角色的状态写成一个状态机，比如待机，行走，死亡，攻击，拾取物品等状态。
+
+  ![image-20210719105229839](D:\Code\Unity\BegineerFull\功能描述.assets\image-20210719105229839.png)
+
+  ```c#
+  using System.Reflection;
+  using System.Collections;
+  using System.Collections.Generic;
+  using UnityEngine;
+  
+  public abstract class BaseState
+  {
+      private float timeing;
+      protected PlayerState playerState;
+      public BaseState(PlayerState state)
+      {
+          playerState = state;
+      }
+      public void CurrentState()
+      {
+          CurrentAnimation();
+          CurrentAudio();
+      }
+      public abstract void CurrentAudio();
+      public abstract void CurrentAnimation();
+      public abstract string GetStateName();
+      public abstract void Update();
+      public abstract void HandleInput();
+  
+      //检测当前动作是否结束
+      public bool AnimaStop()
+      {
+          AnimatorStateInfo animatorInfo;
+          animatorInfo = playerState.Animator.GetCurrentAnimatorStateInfo(0);
+          if ((animatorInfo.normalizedTime > 1.0f))
+          {
+              return true;
+          }
+          else return false;
+      }
+  
+      //切换攻击状态
+      public void ChangeToAttack()
+      {
+          if (PlayerMovement.Instance.PrepShoot)
+          {
+              if (Input.GetMouseButtonDown(0))
+              {
+                  playerState.SetPlayerState(playerState.FightState);
+              }
+          }
+      }
+  }
+  ```
+
+人物死亡时切换为死亡状态，并调用游戏结束的函数，播放淡出效果
+  ```c#
+  using System.Reflection;
+  using UnityEngine;
+  using System.Collections;
+  
+  public class DieState : BaseState
+  {
+      public DieState(PlayerState state) : base(state) { }
+  
+      public override void CurrentAnimation()
+      {
+          if (!playerState.isFight)
+          {
+              playerState.Animator.SetInteger(AnimatorNum.AnimationState, AnimatorNum.IsDie);
+          }
+          else{
+              playerState.Animator.SetInteger(AnimatorNum.AnimationState, AnimatorNum.FightDie);
+          }
+  
+      }
+  
+      public override void CurrentAudio()
+      {
+          playerState.AudioSource.Stop();
+          GameEnding.Instance.CaughtPlayer();
+      }
+  
+      public override string GetStateName()
+      {
+          MethodBase method = new System.Diagnostics.StackTrace().GetFrame(0).GetMethod();
+          string className = method.ReflectedType.FullName;
+          return className;
+      }
+      public override void Update()
+      {
+  
+      }
+      public override void HandleInput()
+      {
+  
+      }
+  }
+  ```
+
+- 场景中有重生点，死亡的怪物在符合特定条件下会在特定地点重生，重生后的**前3秒**不会伤害玩家
+
+  重生点设为怪物初始化的位置，死亡后前三秒怪物的collider组件关闭，这样就碰撞不到玩家了
+  
+  ```c#
+  using System.Collections;
+  using System.Collections.Generic;
+  using UnityEngine;
+  
+  [RequireComponent(typeof(Hurted))]
+  public class Enemy : MonoBehaviour
+  {
+      private Vector3 m_initPos;
+  
+      // Start is called before the first frame update
+      void Start()
+      {
+          m_initPos = transform.position;
+      }
+  
+      public void Revival(float reBlood,float noAttTime)
+      {
+          if (GetComponent<Hurted>())
+          {
+              Hurted hurted = GetComponent<Hurted>();
+              hurted.blood = reBlood;
+              hurted.IsLiving  = true;
+              transform.position = m_initPos;
+              StartCoroutine(StartTime(noAttTime));
+          }
+  
+      }
+  
+      IEnumerator StartTime(float noAttTime)
+      {
+          yield return new WaitForSeconds(noAttTime);
+          GetComponent<CapsuleCollider>().enabled = true;
+      }
+  }
+  ```
+
+### 3.场景机制
+
+- 每个房间有一盏**灯**，灯亮10秒钟后自动熄灭，灯灭15秒后自动亮起；在灯为亮起状态时，进入灯光**5米**范围内的怪物将会死亡；灯灭3秒后，相应房间内处于死亡状态的怪物将重生
+
+  每盏灯分别计时，所有每个灯光组件上都应该挂一个控制脚本，敌人复活时间。同时灯光还肩负攻击敌人的功能，所以继承Arm类，重写触发函数检测敌人是否在攻击范围内。
+  
+  ```c#
+  using System.Collections;
+  using System.Collections.Generic;
+  using UnityEngine;
+  
+  public class LightControll : Arm
+  {
+      private bool isOpen = true;
+      public bool IsOpen { get => isOpen; set => isOpen = value; }
+  
+      public float TimeEnemyRevival = 3;
+      public float TimeLightClose = 15;
+      public float TiemLightOpen = 10;
+      private void Update()
+      {
+          ChangeLightState();
+      }
+  
+      public void ChangeLightState()
+      {
+  
+          if (PlayerMovement.Instance.Huted.IsLiving)
+          {
+              if (!isOpen)
+              {
+                  //Debug.Log("OpenTime:" + m_TimeControll);
+                  LightManager.Instance.ControllSwitch(gameObject, true);
+                  if (TimeControll < TiemLightOpen)
+                  {
+                      TimeControll += Time.deltaTime;
+                  }
+                  else
+                  {
+                      isOpen = true;
+                      TimeControll = 0;
+                  }
+              }
+              else
+              {
+                  //Debug.Log("CloseTime:" + m_TimeControll);
+                  LightManager.Instance.ControllSwitch(gameObject, false);
+                  if (TimeControll < TimeEnemyRevival)
+                  {
+                      //怪物复活时间
+                      TimeControll += Time.deltaTime;
+                  }
+                  else if (TimeControll > TimeEnemyRevival && TimeControll < TimeEnemyRevival + 0.1f)
+                  {
+                      TimeControll += Time.deltaTime;
+                      foreach (var enemy in LightManager.Instance.enemies.Values)
+                      {
+                          if (!enemy.IsLiving)
+                          {
+                              enemy.gameObject.SetActive(true);
+                              enemy.GetComponent<Enemy>().Revival(enemy.initBlood,TimeEnemyRevival);
+                          }
+                      }
+                  }
+                  else if (TimeControll < TimeLightClose)
+                  {
+                      TimeControll += Time.deltaTime;
+                  }
+                  else
+                  {
+                      TimeControll = 0;
+                      isOpen = false;
+                  }
+              }
+          }
+      }
+  
+      public override void OnTriggerEnter(Collider other)
+      {
+          if (other.tag == Tag.Enemy)
+          {
+              //base.OnTriggerEnter(other);
+              if (other.gameObject.GetComponent<Hurted>())
+              {
+                  Hurted enemyState = other.gameObject.GetComponent<Hurted>();
+                  enemyState.Attacked(attackNum);
+                  //Debug.Log(other + ":" + enemyState.IsLiving);
+                  if (!enemyState.IsLiving)
+                  {
+                      other.gameObject.SetActive(false);
+                      LightManager.Instance.enemies[other.name] = enemyState;
+                  }
+              }
+          }
+  
+      }
+      public void ResetLight()
+      {
+          TimeControll = 0;
+          isOpen = !isOpen;
+      }
+  }
+  ```
+  
+  
+
+### 4.机关
+
+1. 开关：主角操作开关可改变与之相连的**灯**的状态（关->开，开->关）并重置其计时情况
+
+   主角开关灯时切换为开灯状态，播放相应动画，并调用灯的ResetLight方法重置其计时情况
+
+2. 陷阱：主角移动到陷阱**2米**范围内将会触发陷阱
+
+- 伤害陷阱：主角触发陷阱时掉1点血，持续接触时每秒掉1点血
+
+  伤害陷阱同怪物一样拥有Observe脚本，攻击方式也与怪物相同。区别在于踩到陷阱后主角切换到受伤状态，通过Hurted的属性区别被怪物击伤，播放不同动画。
+
+- 减速陷阱：在陷阱范围内主角减少50%的移动速度；减速效果将在主角离开减速陷阱范围后结束，恢复正常移动速度
+
+  踩到减速陷阱后改变PlayerMovement类中的是否被减速的属性，离开陷阱后再改回来
+
+  ```c#
+  using System.Collections;
+  using System.Collections.Generic;
+  using UnityEngine;
+  
+  public class SlowTrap : Arm
+  {
+      public override void OnTriggerEnter(Collider other)
+      {
+          base.OnTriggerEnter(other);
+          if (other.tag == Tag.Player)
+          {
+              other.GetComponent<Hurted>().IsSlowDown = true;
+          }
+      }
+  
+      public override void OnTriggerExit(Collider other)
+      {
+          base.OnTriggerExit(other);
+          if (other.tag == Tag.Player)
+          {
+              other.GetComponent<Hurted>().IsSlowDown = false;
+          }
+      }
+  }
+  ```
+
+  
+
+### 5.场景物件和角色道具
+
+- 宝箱：打开宝箱后主角将获得武器。未开启的宝箱是障碍物；已开启的宝箱不是障碍物。
+
+  宝箱本身只有一个碰撞器，人物开启宝箱时切换到开启宝箱状态，开启宝箱后持有武器，需要改变待机和行走状态的动画，在动画器中控制
+
+  ![image-20210719111550785](D:\Code\Unity\BegineerFull\功能描述.assets\image-20210719111550785.png)
+
+  ```c#
+  using System.Reflection;
+  using UnityEngine;
+  using System.Collections;
+  
+  public class OpenBoxState : BaseState
+  {
+      public OpenBoxState(PlayerState state) : base(state) { }
+      public override void CurrentAnimation()
+      {
+          if (!playerState.isFight)
+          {
+              playerState.Animator.SetInteger(AnimatorNum.AnimationState, AnimatorNum.IsOpenBox);
+          }
+          else
+          {
+              playerState.Animator.SetInteger(AnimatorNum.AnimationState, AnimatorNum.FightBoxOpen);
+          }
+      }
+  
+      public override void CurrentAudio()
+      {
+  
+      }
+  
+      public override string GetStateName()
+      {
+          MethodBase method = new System.Diagnostics.StackTrace().GetFrame(0).GetMethod();
+          string className = method.ReflectedType.FullName;
+          return className;
+      }
+  
+      public override void Update()
+      {
+  
+      }
+      public override void HandleInput()
+      {
+          if (AnimaStop())
+          {
+              playerState.isFight = true;
+              PlayerMovement.Instance.gun.gameObject.SetActive(true);
+              playerState.SetPlayerState(playerState.StandingState);
+          }
+      }
+  }
+  ```
+
+### 6.射击
+
+- 在拥有武器后，玩家点击鼠标右键，主角将会抬手向鼠标所在方向发射子弹
+
+- 子弹会沿直线飞行，在碰到障碍物、怪物、墙壁时消失
+
+- 射击应有1秒的冷却时间
+
+  玩家点击鼠标右键会进入瞄准等待，此时鼠标UI会变成一个红色的圈，此时单机鼠标左键人物进入射击模式，播放射击动画并发射子弹。
+
+  创建一个Gun类控制子弹发射，同样继承Arm。通过鼠标点击获取目标坐标，发射子弹，同时调用Arm中检测敌人的函数判断是否对敌人造成伤害。
+
+  此处的子弹用射线的形式表示，子弹碰到目标后会逐渐消失。子弹有1s的cd，发射子弹后需得等到上一发射线消失后才能继续发射
+
+  ```c#
+  using System.Collections;
+  using System.Collections.Generic;
+  using UnityEngine;
+  
+  public class Gun : Arm
+  {
+      public LineRenderer trail;
+      public float shootTime = 1;
+      public bool canShoot=true;
+      Vector3 m_target;
+      Vector3 m_origin;
+      Transform m_TargetTrans;
+      float m_speed;
+      public Vector3 Target { get => m_target; }
+      public void MouseClickPos()
+      {
+          m_origin = transform.position;
+          //Ray ray = new Ray(transform.position, PlayerMovement.Instance.DesiredForward);
+          Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+          RaycastHit hit;
+          if (Physics.Raycast(ray, out hit))
+          {
+              PlayerMovement.Instance.transform.LookAt(new Vector3(hit.point.x ,PlayerMovement.Instance.transform.position.y , hit.point.z));
+              //m_target = new Vector3(hit.point.x ,transform.position.y , hit.point.z);
+              m_target=hit.point;
+              m_TargetTrans=hit.transform;
+              m_speed = hit.distance / shootTime;
+          }
+      }
+  
+      public void Shoot()
+      {
+          trail.gameObject.SetActive(true);
+          CheckTarget(m_TargetTrans);
+          StartCoroutine(ShootControll());
+          canShoot=false;
+      }
+  
+      IEnumerator ShootControll()
+      {
+          while (m_origin != m_target)
+          {
+              Vector3[] pos = { m_origin, m_target };
+              trail.SetPositions(pos);
+              //Debug.Log("shoot" + m_origin + ":" + m_target);
+              m_origin = Vector3.MoveTowards(m_origin, m_target, m_speed * Time.deltaTime);
+              yield return null;
+          }
+          canShoot=true;
+          trail.gameObject.SetActive(false);
+      }
+  }
+  ```
+
+  
